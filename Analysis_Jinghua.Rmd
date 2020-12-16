@@ -9,11 +9,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r results="hide", include=FALSE}
 # Import data and library 
-raw_data = read.csv(file = 'online_retail.csv')
+raw_data = read.csv(file = 'online_retail.csv', stringsAsFactors=FALSE)
+library(lubridate)
 library(plyr)
 library(dplyr)
 library(reshape2)
 library(ggplot2)
+library(chron)
 ```
 
 ```{r}
@@ -29,11 +31,11 @@ clean_data = raw_data %>% filter(Quantity > 0, UnitPrice > 0)
 
 # Aggregate data by product
 product =
-  raw_data %>%
+  clean_data %>%
   group_by(StockCode) %>%
   summarise(
     total_revenue = sum(revenue),
-    toal_quantity = sum(Quantity),
+    total_quantity = sum(Quantity),
     num_invoice = n_distinct(InvoiceNo),
     num_customer = n_distinct(CustomerID),
     description = first(Description)
@@ -41,7 +43,7 @@ product =
   arrange(-total_revenue)
                   
 # Drop the ~13,200 rows where customer ID is missing. 
-clean_customer = raw_data %>% filter(!is.na(CustomerID))
+clean_customer = clean_data %>% filter(!is.na(CustomerID))
 
 # Aggregate data by customer ID 
 customer =
@@ -49,7 +51,7 @@ customer =
   group_by(CustomerID) %>%
   summarise(
     total_revenue = sum(revenue),
-    toal_quantity = sum(Quantity),
+    total_quantity = sum(Quantity),
     num_invoice = n_distinct(InvoiceNo),
     num_product = n_distinct(StockCode),
     country = first(Country)
@@ -73,25 +75,138 @@ cost = cost %>%
   group_by(StockCode) %>% 
   summarise(
     total_cost = sum(revenue),
-    toal_quantity = sum(Quantity),
+    total_quantity = sum(Quantity),
     num_invoice = n_distinct(InvoiceNo),
     description = first(Description)
   ) %>%
   arrange(total_cost)
 
-# time series analysis
-clean_data$InvoiceDate = as.Date(clean_data$InvoiceDate)
-
 
 
 ```
 
+
+
 ```{r}
 
 # question 6
-# distribution of revenue pers customer
 
 # distubuiton of revenue per order
+order_agg = clean_data %>%
+  group_by(InvoiceNo) %>%
+  summarize(
+    revenue = sum(revenue),
+    total_quantity = sum(Quantity),
+    num_item = n_distinct(StockCode)
+  )
+ggplot(order_agg) +
+  geom_point(aes(x=revenue, y=total_quantity), color = "#1890ff")
 
+# filter out the outliers (7 orders are filtered out)
+order_agg %>% filter(revenue < 25000) %>%
+ggplot() +
+  geom_point(aes(x=revenue, y=total_quantity), color = "#1890ff")
+
+#######################################
+
+
+
+clean_data$date = as.Date(mdy_hm(clean_data$InvoiceDate))
+clean_data$weekday = weekdays(clean_data$date)
+clean_data$month = format(clean_data$date, "%Y-%m")
+
+
+# distribution of revenue over time
+date_agg = clean_data %>%
+  group_by(date) %>%
+  summarize(
+    total_revenue = sum(revenue),
+    total_quantity = sum(Quantity),
+    num_invoice = n_distinct(InvoiceNo),
+  )
+
+
+
+# Revenue by day
+ggplot(date_agg) +
+  geom_line(mapping = aes(x = date, y = total_revenue),  color = "#1890ff")
+
+# Number of order by day
+ggplot(date_agg) +
+  geom_line(mapping = aes(x = date, y = num_invoice),  color = "#1890ff")
+
+
+# Aggregate by day of week
+weekday_agg = clean_data %>%
+  group_by(weekday) %>%
+  summarize(
+    total_revenue = sum(revenue),
+    total_quantity = sum(Quantity),
+    num_invoice = n_distinct(InvoiceNo),
+  ) %>%
+  mutate(weekday = 
+           factor(weekday, levels=c("Monday", "Tuesday", "Wednesday", "Thursday"
+                                    , "Friday", "Sunday"))) 
+
+ggplot(weekday_agg) +
+  geom_col(mapping = aes(x = weekday, y = total_revenue),  fill = "#1890ff")
+ggplot(weekday_agg) +
+  geom_col(mapping = aes(x = weekday, y = num_invoice),  fill = "#1890ff")
+
+
+# Aggregate by month
+
+month_agg = clean_data %>%
+  group_by(month) %>%
+  summarize(
+    revenue = sum(revenue),
+    total_quantity = sum(Quantity),
+    num_invoice = n_distinct(InvoiceNo),
+  ) 
+ggplot(month_agg) +
+  geom_col(mapping = aes(x = month, y = revenue),  fill = "#40a9ff") + 
+  scale_x_discrete(guide = guide_axis(angle = 30))
+
+
+```
+
+
+```{r}
+# question 5
+clean_product = product 
+top10_product = clean_product[1:10,]
+
+clean_product = product %>% filter(num_customer > 5, StockCode != "POST", StockCode != "M")
+top10_product = clean_product[1:10,]
+
+top10_product_trans = clean_data %>%
+  inner_join(y=top10_product, by=c("StockCode"))
+
+top10_product_price = top10_product_trans %>%
+  arrange(date) %>%
+  group_by(StockCode, UnitPrice) %>%
+  summarise(
+    total_quantity = sum(Quantity),
+    num_invoice = n_distinct(InvoiceNo),
+    description = first(description),
+    start = first(date),
+    end = last(date),
+    span = difftime(last(date), first(date), unit = "days") + 1
+  )
+
+top10_product_price_agg = top10_product_price %>%
+  group_by(StockCode) %>%
+  summarise(
+    n = n_distinct(UnitPrice),
+    description = first(description),
+  )
+
+ggplot(top10_product_price) +
+  geom_point(aes(x = UnitPrice, y = total_quantity, color = description))
+
+ggplot(top10_product_price %>% filter(UnitPrice < 600)) +
+  geom_point(aes(x = UnitPrice, y = total_quantity, color = description)) +
+  scale_color_manual(values = c("#000000", "#E69F00", "#56B4E9", "#009E73",
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "red", "blue"))
 
 ```
