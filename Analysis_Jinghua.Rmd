@@ -7,22 +7,91 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r results="hide", include=FALSE}
+# Import data and library 
+raw_data = read.csv(file = 'online_retail.csv')
+library(plyr)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
 ```
 
-## Including Plots
+```{r}
+# Compute transactional revenue
+raw_data$revenue = raw_data$Quantity * raw_data$UnitPrice
 
-You can also embed plots, for example:
+# For data cleaning and preparing commonly use dateset
+summary(raw_data)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+# Only keep the rows with positive quantity and price.
+# 11805(~2% of overall data) rows are removed 
+clean_data = raw_data %>% filter(Quantity > 0, UnitPrice > 0)
+
+# Aggregate data by product
+product =
+  raw_data %>%
+  group_by(StockCode) %>%
+  summarise(
+    total_revenue = sum(revenue),
+    toal_quantity = sum(Quantity),
+    num_invoice = n_distinct(InvoiceNo),
+    num_customer = n_distinct(CustomerID),
+    description = first(Description)
+  ) %>%
+  arrange(-total_revenue)
+                  
+# Drop the ~13,200 rows where customer ID is missing. 
+clean_customer = raw_data %>% filter(!is.na(CustomerID))
+
+# Aggregate data by customer ID 
+customer =
+  clean_customer %>%
+  group_by(CustomerID) %>%
+  summarise(
+    total_revenue = sum(revenue),
+    toal_quantity = sum(Quantity),
+    num_invoice = n_distinct(InvoiceNo),
+    num_product = n_distinct(StockCode),
+    country = first(Country)
+  ) %>%
+  arrange(-total_revenue)
+                  
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r overview}
+
+# revenue 
+sum(clean_data$revenue)
+
+# cost 
+cost = raw_data %>% filter(revenue < 0)
+sum(cost$revenue)
+cost = cost %>%
+  group_by(StockCode) %>% 
+  summarise(
+    total_cost = sum(revenue),
+    toal_quantity = sum(Quantity),
+    num_invoice = n_distinct(InvoiceNo),
+    description = first(Description)
+  ) %>%
+  arrange(total_cost)
+
+# time series analysis
+clean_data$InvoiceDate = as.Date(clean_data$InvoiceDate)
+
+
+
+```
+
+```{r}
+
+# question 6
+# distribution of revenue pers customer
+
+# distubuiton of revenue per order
+
+
+```
