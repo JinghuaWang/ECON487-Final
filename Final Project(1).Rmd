@@ -1,0 +1,174 @@
+---
+title: "Final Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+packages import
+```{r, include=FALSE}
+library(ggplot2)
+library(Metrics)
+library(plyr)
+library(dplyr)
+library(glmnet)
+library(reshape2)
+library(rpart)
+library(rpart.plot)
+library(partykit)
+library(permute)
+library(maptree)
+library(randomForest)
+library(DBI)
+library(odbc)
+library(lubridate)
+library(scales)
+data = read.csv("online_retail.csv")
+data$revenue = data$Quantity * data$UnitPrice
+```
+
+Data Cleaning
+```{r}
+# wtf is this Dotcom Postage
+newData <- data[which(data$StockCode!="DOT"), ]
+# wtf is this Postage
+newData <- newData[which(newData$StockCode!="POST"), ]
+# wtf is check
+newData <- newData[which(newData$Description!="check"),]
+```
+
+```{r}
+# time management
+newData$month <- as.Date(mdy_hm(newData$InvoiceDate))
+newData$month = format(newData$month, "%Y-%m")
+newData$week = format(as.Date(mdy_hm(newData$InvoiceDate)), "%Y-%U")
+```
+
+Find top 10 products by revenue/quantity
+```{r}
+best_products <- newData %>%
+  group_by(StockCode, Description) %>%
+  summarise(
+    totalRev = sum(revenue),
+    totalQ = sum(Quantity),
+    avgPrice = mean(UnitPrice)
+    )
+best_products.rev <- best_products[order(-best_products$totalRev),]
+best_products.q <- best_products[order(-best_products$totalQ),]
+# top 10 products by revenue
+head(best_products.rev,10)
+# top 10 products by quantity
+head(best_products.q,10)
+```
+
+Top 10 products' revenue across entire range
+```{r}
+month_trade = newData %>%
+  group_by(StockCode, Description, month) %>%
+  summarize(
+    mQuan = mean(Quantity),
+    mPrice = mean(UnitPrice),
+    mOrder = n()
+  )
+month_trade$Revenue = month_trade$mQuan*month_trade$mPrice
+month_trade
+top10_month_trade <- month_trade %>%
+  filter(StockCode=="22423"|StockCode=="47566"|StockCode=="85123A"|StockCode=="85099B"|StockCode=="23084"|
+           StockCode=="22086"|StockCode=="84879"|StockCode=="79321"|StockCode=="23298"|StockCode=="22386")
+plot<-ggplot(top10_month_trade)+geom_point(aes(x = month, y = Revenue, color=StockCode))
+plot
+```
+Find consumers who purchase top 4 items by revenue
+```{r}
+major_customer = newData %>%
+  group_by(CustomerID,StockCode) %>%
+  summarise(totalRev = sum(revenue), totalQ = sum(Quantity)) %>%
+  filter(StockCode=="22423"|StockCode=="47566"|StockCode=="85123A"|StockCode=="85099B")
+major_customer = na.omit(major_customer)
+major_customer.1 = major_customer %>%
+  group_by(CustomerID) %>%
+  summarize(totalRev = sum(totalRev), totalQ = sum(totalQ))
+major_customer = merge(newData, major_customer.1, by = "CustomerID")
+major_customer = major_customer[, c("CustomerID","totalRev","totalQ","StockCode","Description","Quantity","revenue")]
+major_customer = subset(major_customer, StockCode!="22423"&StockCode!="47566"&StockCode!="85123A"&StockCode!="85099B")
+major_customer.2 = major_customer %>%
+  group_by(CustomerID,totalRev,totalQ) %>%
+  summarise(totalRev_else = sum(revenue), totalQ_else = sum(Quantity))
+major_customer.2$vip = "small_revenue"
+major_customer.2$vip[major_customer.2$totalRev >= 200] = "large_revenue"
+```
+
+Customer Proportion
+```{r}
+class = major_customer.2 %>%
+  group_by(vip) %>%
+  summarise(
+    totalRev = sum(totalRev),
+    totalQ = sum(totalQ),
+    totalRev_else = sum(totalRev_else),
+    totalQ_else = sum(totalQ_else),
+    customerNo = n()
+    )
+class$customer_prop = round(class$customerNo/sum(class$customerNo)*100,2)
+class$totalRev_prop = round(class$totalRev/sum(class$totalRev)*100,2)
+class$totalQ_prop = round(class$totalQ/sum(class$totalQ)*100,2)
+class$totalRev_else_prop = round(class$totalRev_else/sum(class$totalRev_else)*100,2)
+class$totalQ_else_prop = round(class$totalQ_else/sum(class$totalQ_else)*100,2)
+class <- class %>%
+  arrange(totalRev_prop) %>% 
+  mutate(
+    lab.Cus_prop = cumsum(customer_prop)-0.5*customer_prop,
+    lab.Rev_prop = cumsum(totalRev_prop)-0.5*totalRev_prop,
+    lab.Q_prop = cumsum(totalQ_prop)-0.5*totalQ_prop,
+    lab.Rev_else_prop = cumsum(totalRev_else_prop)-0.5*totalRev_else_prop,
+    lab.Q_else_prop = cumsum(totalQ_else_prop)-0.5*totalQ_else_prop
+    )
+class
+# prop_customer <- ggplot(class, aes(x = "", y = customer_prop, fill = vip)) +
+#   geom_bar(stat = "identity", color = "white") +
+#   coord_polar(theta = "y", start = 0) +
+#   geom_text(aes(y = lab.Cus_prop, label = customer_prop), color = "white")+
+#   theme_void()
+prop_customer <- ggplot(class, aes(x="", y=customer_prop, fill=vip))+
+geom_bar(width = 0.5, stat = "identity") + geom_text(aes(y = lab.Cus_prop, label = customer_prop), color = "black")+ scale_fill_brewer(palette="Blues")+
+  theme_minimal()
+
+prop_customer
+prop_Rev <- ggplot(class, aes(x = "", y = totalRev_prop, fill = vip)) +
+  geom_bar(stat = "identity", color = "white") +
+  coord_polar(theta = "y", start = 0) +
+  geom_text(aes(y = lab.Rev_prop, label = totalRev_prop), color = "white")+
+  theme_void()
+prop_Rev
+prop_Q <- ggplot(class, aes(x = "", y = totalQ_prop, fill = vip)) +
+  geom_bar(stat = "identity", color = "white") +
+  coord_polar(theta = "y", start = 0) +
+  geom_text(aes(y = lab.Q_prop, label = totalQ_prop), color = "white")+
+  theme_void()
+prop_Q
+prop_Rev_else <- ggplot(class, aes(x = "", y = totalRev_else_prop, fill = vip)) +
+  geom_bar(stat = "identity", color = "white") +
+  coord_polar(theta = "y", start = 0) +
+  geom_text(aes(y = lab.Rev_else_prop, label = totalRev_else_prop), color = "white")+
+  theme_void()
+prop_Rev_else
+prop_Q_else <- ggplot(class, aes(x = "", y = totalQ_else_prop, fill = vip)) +
+  geom_bar(stat = "identity", color = "white") +
+  coord_polar(theta = "y", start = 0) +
+  geom_text(aes(y = lab.Q_else_prop, label = totalQ_else_prop), color = "white")+
+  theme_void()
+prop_Q_else
+```
+plot those customer's revenue for the top 4 goods on other goods' revenue
+```{r}
+data3 = major_customer.2 %>%
+  filter(totalRev > 200)
+plot<-ggplot(major_customer.2, aes(totalRev,totalRev_else))+geom_point(size=0.7) + geom_smooth(method='lm')
+plot
+plot.1<-ggplot(data3, aes(totalRev,totalRev_else))+geom_point(size=0.7) + geom_smooth(method='lm')
+plot.1
+```
+
+

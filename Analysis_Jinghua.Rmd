@@ -16,6 +16,11 @@ library(dplyr)
 library(reshape2)
 library(ggplot2)
 library(chron)
+require(maps)
+require(viridis)
+theme_set(
+  theme_void()
+  )
 ```
 
 ```{r}
@@ -120,7 +125,7 @@ clean_data$month = format(clean_data$date, "%Y-%m")
 date_agg = clean_data %>%
   group_by(date) %>%
   summarize(
-    total_revenue = sum(revenue),
+    revenue = sum(revenue),
     total_quantity = sum(Quantity),
     num_invoice = n_distinct(InvoiceNo),
   )
@@ -129,18 +134,20 @@ date_agg = clean_data %>%
 
 # Revenue by day
 ggplot(date_agg) +
-  geom_line(mapping = aes(x = date, y = total_revenue),  color = "#1890ff")
+  geom_line(mapping = aes(x = date, y = revenue),  color = "#1890ff") +
+  ggtitle("Daily Revenue")
 
 # Number of order by day
 ggplot(date_agg) +
-  geom_line(mapping = aes(x = date, y = num_invoice),  color = "#1890ff")
+  geom_line(mapping = aes(x = date, y = num_invoice),  color = "#1890ff") +
+  ggtitle ("Daily Order")
 
 
 # Aggregate by day of week
 weekday_agg = clean_data %>%
   group_by(weekday) %>%
   summarize(
-    total_revenue = sum(revenue),
+    revenue = sum(revenue),
     total_quantity = sum(Quantity),
     num_invoice = n_distinct(InvoiceNo),
   ) %>%
@@ -149,9 +156,11 @@ weekday_agg = clean_data %>%
                                     , "Friday", "Sunday"))) 
 
 ggplot(weekday_agg) +
-  geom_col(mapping = aes(x = weekday, y = total_revenue),  fill = "#1890ff")
+  geom_col(mapping = aes(x = weekday, y = revenue),  fill = "#1890ff") +
+  ggtitle ("Revenue Breakdown by Day of Week")
 ggplot(weekday_agg) +
-  geom_col(mapping = aes(x = weekday, y = num_invoice),  fill = "#1890ff")
+  geom_col(mapping = aes(x = weekday, y = num_invoice),  fill = "#1890ff") +
+  ggtitle ("Number of Orders Breakdown by Day of Week")
 
 
 # Aggregate by month
@@ -165,7 +174,8 @@ month_agg = clean_data %>%
   ) 
 ggplot(month_agg) +
   geom_col(mapping = aes(x = month, y = revenue),  fill = "#40a9ff") + 
-  scale_x_discrete(guide = guide_axis(angle = 30))
+  scale_x_discrete(guide = guide_axis(angle = 30)) +
+  ggtitle ("Monthly Revenue")
 
 
 ```
@@ -206,7 +216,35 @@ ggplot(top10_product_price) +
 
 ggplot(top10_product_price %>% filter(UnitPrice < 600)) +
   geom_point(aes(x = UnitPrice, y = total_quantity, color = description)) +
+  geom_smooth(aes(x = UnitPrice, y = total_quantity, color = description), method = "lm",
+              formula = y ~ x, se = FALSE) +
   scale_color_manual(values = c("#000000", "#E69F00", "#56B4E9", "#009E73",
-          "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "red", "blue"))
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "red", "blue")) +
+  ggtitle("Top 10 Products")
 
+```
+
+
+```{r}
+country = customer %>% 
+  group_by(country) %>%
+  summarise(
+    revenue = sum(total_revenue)
+  ) %>%
+  arrange(-revenue) %>%
+  rename(region = country)
+
+
+world_map <- map_data("world") %>%
+  left_join(country, by = "region")
+  
+ggplot(world_map) +
+  geom_polygon(
+    mapping = aes(x = long, y = lat, group = group, fill = revenue),
+    color = "white",
+    size = .1 
+  ) +
+  coord_map() + 
+  scale_fill_continuous(low = "#132B43", high = "Red") +
+  labs(fill = "Revenue")
 ```
